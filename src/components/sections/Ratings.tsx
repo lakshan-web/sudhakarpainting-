@@ -1,5 +1,6 @@
 import { motion, Variants } from "framer-motion";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 type Review = {
   id: string;
@@ -61,39 +62,80 @@ export function Ratings() {
   const [formMessage, setFormMessage] = useState("");
 
   useEffect(() => {
-    const saved = localStorage.getItem("sp-reviews");
-    if (saved) {
+    const fetchFeedback = async () => {
       try {
-        const parsed = JSON.parse(saved);
-        setReviewsList([...parsed, ...defaultReviews]);
-      } catch (e) {}
-    }
+        const response = await fetch("http://localhost:5000/api/feedback");
+        if (response.ok) {
+          const data = await response.json();
+          const mappedReviews: Review[] = data.map((item: any) => ({
+            id: item.id.toString(),
+            name: item.name,
+            role: item.lorry_name,
+            text: item.message,
+            rating: item.rating,
+            phone: item.phone,
+            timestamp: new Date(item.created_at).getTime(),
+          }));
+          setReviewsList([...mappedReviews, ...defaultReviews]);
+        }
+      } catch (e) {
+        console.error("Failed to fetch feedback", e);
+        setReviewsList(defaultReviews);
+      }
+    };
+    fetchFeedback();
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName || !formLorry || !formMessage || !formPhone) return;
+    if (!formName || !formLorry || !formMessage || !formPhone) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
 
-    const newReview: Review = {
-      id: Date.now().toString(),
-      name: formName,
-      role: formLorry,
-      phone: formPhone,
-      text: formMessage,
-      rating: formRating,
-      timestamp: Date.now(),
-    };
+    try {
+      const response = await fetch("http://localhost:5000/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: formName,
+          lorryName: formLorry,
+          phone: formPhone,
+          rating: formRating,
+          message: formMessage,
+        }),
+      });
 
-    const customReviews = reviewsList.filter(r => !r.id.startsWith("def-"));
-    const updated = [newReview, ...customReviews];
-    localStorage.setItem("sp-reviews", JSON.stringify(updated));
-    setReviewsList([newReview, ...reviewsList]);
+      if (response.ok) {
+        const data = await response.json();
+        const newReview: Review = {
+          id: data.id ? data.id.toString() : Date.now().toString(),
+          name: data.name,
+          role: data.lorry_name,
+          text: data.message,
+          rating: data.rating,
+          phone: data.phone,
+          timestamp: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
+        };
 
-    setFormName("");
-    setFormLorry("");
-    setFormPhone("");
-    setFormRating(5);
-    setFormMessage("");
+        const customReviews = reviewsList.filter(r => !r.id.startsWith("def-"));
+        setReviewsList([newReview, ...customReviews, ...defaultReviews]);
+        toast.success("Feedback submitted successfully!");
+
+        setFormName("");
+        setFormLorry("");
+        setFormPhone("");
+        setFormRating(5);
+        setFormMessage("");
+      } else {
+        toast.error("Failed to submit feedback");
+      }
+    } catch (e) {
+      console.error("Failed to submit feedback", e);
+      toast.error("An error occurred. Please try again later.");
+    }
   };
 
   const containerVariants: Variants = {
