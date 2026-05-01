@@ -53,7 +53,7 @@ function Star({ delay = 0 }: { delay?: number }) {
 
 export function Ratings() {
   const [reviewsList, setReviewsList] = useState<Review[]>(defaultReviews);
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(true);
   
   const [formName, setFormName] = useState("");
   const [formLorry, setFormLorry] = useState("");
@@ -61,35 +61,46 @@ export function Ratings() {
   const [formRating, setFormRating] = useState(5);
   const [formMessage, setFormMessage] = useState("");
 
-  useEffect(() => {
-    const fetchFeedback = async () => {
-      try {
-        const response = await fetch("http://localhost:5000/api/feedback");
-        if (response.ok) {
-          const data = await response.json();
-          const mappedReviews: Review[] = data.map((item: any) => ({
-            id: item.id.toString(),
-            name: item.name,
-            role: item.lorry_name,
-            text: item.message,
-            rating: item.rating,
-            phone: item.phone,
-            timestamp: new Date(item.created_at).getTime(),
-          }));
-          setReviewsList([...mappedReviews, ...defaultReviews]);
-        }
-      } catch (e) {
-        console.error("Failed to fetch feedback", e);
-        setReviewsList(defaultReviews);
+  const fetchFeedback = async () => {
+    try {
+      const response = await fetch("http://localhost:5000/api/feedback");
+      if (response.ok) {
+        const rawData = await response.json();
+        console.log("GET Response Data:", rawData);
+        
+        // Ensure validData is strictly an array to prevent .filter() crash
+        const validData = Array.isArray(rawData) ? rawData : (Array.isArray(rawData?.data) ? rawData.data : []);
+        
+        const mappedReviews: Review[] = validData.filter((item: any) => item && item.name).map((item: any, index: number) => ({
+          id: item.id ? item.id.toString() : `db-${Date.now()}-${index}-${Math.random()}`,
+          name: String(item.name || "Unknown"),
+          role: String(item.lorry_name || "Unknown Role"),
+          text: String(item.message || ""),
+          rating: Math.max(0, Math.min(5, Number(item.rating) || 5)),
+          phone: String(item.phone || ""),
+          timestamp: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
+        }));
+        
+        setReviewsList([...mappedReviews, ...defaultReviews]);
       }
-    };
+    } catch (e) {
+      console.error("Failed to fetch feedback", e);
+    }
+  };
+
+  useEffect(() => {
     fetchFeedback();
   }, []);
+
+  // Debug step: Confirm array has data
+  useEffect(() => {
+    console.log("Current Feedbacks State:", reviewsList);
+  }, [reviewsList]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName || !formLorry || !formMessage || !formPhone) {
-      toast.error("Please fill in all required fields");
+      alert("Please fill in all required fields");
       return;
     }
 
@@ -109,32 +120,29 @@ export function Ratings() {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        const newReview: Review = {
-          id: data.id ? data.id.toString() : Date.now().toString(),
-          name: data.name,
-          role: data.lorry_name,
-          text: data.message,
-          rating: data.rating,
-          phone: data.phone,
-          timestamp: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
-        };
+        const postData = await response.json();
+        console.log("POST Response Data:", postData);
 
-        const customReviews = reviewsList.filter(r => !r.id.startsWith("def-"));
-        setReviewsList([newReview, ...customReviews, ...defaultReviews]);
-        toast.success("Feedback submitted successfully!");
-
+        // Clear form
         setFormName("");
         setFormLorry("");
         setFormPhone("");
         setFormRating(5);
         setFormMessage("");
+
+        // Re-fetch ALL feedback from database to stay in sync
+        await fetchFeedback();
+        setShowAll(true);
+
+        alert("Feedback submitted successfully!");
       } else {
-        toast.error("Failed to submit feedback");
+        const errorData = await response.json();
+        console.error("Backend error details:", errorData);
+        alert(`Database Error: ${errorData.details || errorData.error || 'Failed to submit feedback'}`);
       }
     } catch (e) {
       console.error("Failed to submit feedback", e);
-      toast.error("An error occurred. Please try again later.");
+      alert("An error occurred. Please try again later.");
     }
   };
 
@@ -150,7 +158,7 @@ export function Ratings() {
 
   const avgRating = (reviewsList.reduce((acc, r) => acc + r.rating, 0) / reviewsList.length).toFixed(1);
   const totalBase = 240 + reviewsList.length - 3;
-  const displayedReviews = showAll ? reviewsList : reviewsList.slice(0, 4);
+  const displayedReviews = showAll ? reviewsList : reviewsList.slice(0, 6);
 
   return (
     <section id="ratings" className="relative py-32 px-6 md:px-12">
@@ -216,35 +224,43 @@ export function Ratings() {
           viewport={{ once: true, margin: "-50px" }}
           className="grid md:grid-cols-3 gap-6 text-left"
         >
-          {displayedReviews.map((r) => (
-            <motion.div
-              variants={cardVariants}
-              key={r.id}
-              className="glass rounded-2xl p-7 tilt-card"
-              style={{ perspective: "1000px" }}
-            >
-              <div className="flex gap-0.5 mb-4 text-primary text-lg" style={{ color: "var(--yellow)", textShadow: "0 0 12px var(--yellow)" }}>
-                {Array.from({ length: r.rating }).map((_, i) => <span key={`star-full-${i}`}>★</span>)}
-                {Array.from({ length: 5 - r.rating }).map((_, i) => <span key={`star-empty-${i}`} className="opacity-20">★</span>)}
-              </div>
-              <p className="text-foreground/85 leading-relaxed mb-6 text-[15px]">"{r.text}"</p>
-              <div className="flex items-center gap-3 pt-4 border-t border-border mt-auto">
-                <div
-                  className="h-10 w-10 rounded-full grid place-items-center font-display text-lg shrink-0"
-                  style={{ background: "var(--gradient-fire)", color: "#0B0F19" }}
-                >
-                  {r.name[0]?.toUpperCase()}
+          {displayedReviews.map((r) => {
+            if (!r) return null; // Safety check
+            const safeName = String(r.name || "Unknown");
+            const safeText = String(r.text || "");
+            const safeRole = String(r.role || "Unknown Role");
+            const safeRating = Math.max(0, Math.min(5, Number(r.rating) || 5)); // Clamp between 0 and 5
+            
+            return (
+              <motion.div
+                variants={cardVariants}
+                key={r.id || `fallback-key-${Math.random()}`}
+                className="glass rounded-2xl p-7 tilt-card"
+                style={{ perspective: "1000px" }}
+              >
+                <div className="flex gap-0.5 mb-4 text-primary text-lg" style={{ color: "var(--yellow)", textShadow: "0 0 12px var(--yellow)" }}>
+                  {Array.from({ length: safeRating }).map((_, i) => <span key={`star-full-${i}`}>★</span>)}
+                  {Array.from({ length: 5 - safeRating }).map((_, i) => <span key={`star-empty-${i}`} className="opacity-20">★</span>)}
                 </div>
-                <div className="overflow-hidden">
-                  <div className="font-display tracking-wider truncate">{r.name}</div>
-                  <div className="text-xs text-muted-foreground uppercase tracking-widest truncate">{r.role}</div>
+                <p className="text-foreground/85 leading-relaxed mb-6 text-[15px]">"{safeText}"</p>
+                <div className="flex items-center gap-3 pt-4 border-t border-border mt-auto">
+                  <div
+                    className="h-10 w-10 rounded-full grid place-items-center font-display text-lg shrink-0 uppercase"
+                    style={{ background: "var(--gradient-fire)", color: "#0B0F19" }}
+                  >
+                    {safeName.charAt(0)}
+                  </div>
+                  <div className="overflow-hidden">
+                    <div className="font-display tracking-wider truncate">{safeName}</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest truncate">{safeRole}</div>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </motion.div>
 
-        {reviewsList.length > 4 && !showAll && (
+        {reviewsList.length > 6 && (
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
@@ -252,11 +268,11 @@ export function Ratings() {
             className="mt-12"
           >
             <button
-              onClick={() => setShowAll(true)}
+              onClick={() => setShowAll(prev => !prev)}
               className="lift-btn inline-flex items-center justify-center px-8 py-3 rounded-xl font-display tracking-[0.2em] uppercase text-sm glass"
               style={{ color: "var(--yellow)", border: "1px solid oklch(0.74 0.20 50 / 40%)" }}
             >
-              See All Feedback ↓
+              {showAll ? "Show Less ↑" : `See All Feedback (${reviewsList.length}) ↓`}
             </button>
           </motion.div>
         )}

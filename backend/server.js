@@ -11,8 +11,19 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Global logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // Helper to format table name exactly as requested by user
 const TABLE_NAME = 'feedback';
+
+// Root route
+app.get('/', (req, res) => {
+  res.send('Backend is running');
+});
 
 // GET /api/feedback
 app.get('/api/feedback', async (req, res) => {
@@ -23,8 +34,10 @@ app.get('/api/feedback', async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Supabase error on GET:', error);
-      return res.status(500).json({ error: 'Failed to fetch feedback' });
+      console.error('\n--- Supabase GET Error ---');
+      console.error(error);
+      console.error('--------------------------\n');
+      return res.status(500).json({ error: 'Failed to fetch feedback', details: error.message });
     }
 
     res.json(data);
@@ -38,9 +51,12 @@ app.get('/api/feedback', async (req, res) => {
 app.post('/api/feedback', async (req, res) => {
   try {
     const { name, lorryName, phone, rating, message } = req.body;
+    console.log('\n--- Incoming POST Request ---');
+    console.log('Body:', req.body);
+    console.log('-----------------------------\n');
 
     // Validate required fields
-    if (!name || !lorryName || !phone || !rating || !message) {
+    if (!name || !lorryName || !phone || rating === undefined || !message) {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
@@ -58,17 +74,27 @@ app.post('/api/feedback', async (req, res) => {
       .select();
 
     if (error) {
-      console.error('Supabase error on POST:', error);
-      return res.status(500).json({ error: 'Failed to submit feedback' });
+      console.error('\n--- Supabase POST Error ---');
+      console.error(error);
+      console.error('---------------------------\n');
+      return res.status(500).json({ error: 'Failed to submit feedback', details: error.message });
     }
 
-    res.status(201).json(data[0]);
+    res.status(201).json({ success: true, data: data[0] });
   } catch (err) {
     console.error('Server error on POST:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
+// Catch-all 404 error handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
 app.listen(port, () => {
-  console.log(`Backend server running on http://localhost:${port}`);
+  console.log(`\n========================================`);
+  console.log(`🚀 Backend server is running!`);
+  console.log(`📡 Listening on http://localhost:${port}`);
+  console.log(`========================================\n`);
 });
